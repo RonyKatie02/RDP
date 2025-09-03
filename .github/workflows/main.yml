@@ -1,58 +1,58 @@
-nom : RDP 
+name: RDP
 
-sur : 
-  workflow_dispatch : 
+on:
+  workflow_dispatch:
 
-jobs : 
-  sécurisé - rdp : 
-    s'exécute - sur : windows - dernier 
-    délai d'expiration - minutes : 3600     étapes : - nom : Configurer les paramètres RDP de base         exécuter : | # Activer le Bureau à distance et désactiver l'authentification au niveau du réseau (si nécessaire) Set - ItemProperty - Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' `                              -Name "fDenyTSConnections" -Value 0 -Force           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' ` - Name "UserAuthentication" - Value 0 - Force Set - ItemProperty - Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `                              -Name "SecurityLayer" -Value 0 -Force           # Supprimez toute règle existante portant le même nom pour éviter les doublons           netsh advfirewall firewall delete rule name="RDP-Tailscale"           # Pour les tests, autorisez toute connexion entrante sur le port 3389           netsh advfirewall firewall add rule name="RDP-Tailscale" `             dir = in action = allow protocol = TCP localport = 3389 # (Facultatif) Redémarrez le service Bureau à distance pour garantir que les modifications prennent effet Restart - Service - Name TermService - Force - name : Créer un utilisateur RDP avec un mot de passe sécurisé         run : | Add - Type - AssemblyName System . Security           $charSet = @{ Upper = [ char []]( 65. . 90 ) # AZ Lower = [ char []]( 97. . 122 ) # az 
+jobs:
+  secure-rdp:
+    runs-on: windows-latest
+    timeout-minutes: 3600
 
+    steps:
+      - name: Configure Core RDP Settings
+        run: |
+          # Enable Remote Desktop and disable Network Level Authentication (if needed)
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' `
+                             -Name "fDenyTSConnections" -Value 0 -Force
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
+                             -Name "UserAuthentication" -Value 0 -Force
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
+                             -Name "SecurityLayer" -Value 0 -Force
 
-        
- 
+          # Remove any existing rule with the same name to avoid duplication
+          netsh advfirewall firewall delete rule name="RDP-Tailscale"
           
-             
+          # For testing, allow any incoming connection on port 3389
+          netsh advfirewall firewall add rule name="RDP-Tailscale" `
+            dir=in action=allow protocol=TCP localport=3389
 
+          # (Optional) Restart the Remote Desktop service to ensure changes take effect
+          Restart-Service -Name TermService -Force
 
-                                 
-             
-
-
-
-
+      - name: Create RDP User with Secure Password
+        run: |
+          Add-Type -AssemblyName System.Security
+          $charSet = @{
+              Upper   = [char[]](65..90)      # A-Z
+              Lower   = [char[]](97..122)     # a-z
+              Number  = [char[]](48..57)      # 0-9
+              Special = ([char[]](33..47) + [char[]](58..64) +
+                         [char[]](91..96) + [char[]](123..126)) # Special characters
+          }
+          $rawPassword = @()
+          $rawPassword += $charSet.Upper | Get-Random -Count 4
+          $rawPassword += $charSet.Lower | Get-Random -Count 4
+          $rawPassword += $charSet.Number | Get-Random -Count 4
+          $rawPassword += $charSet.Special | Get-Random -Count 4
+          $password = -join ($rawPassword | Sort-Object { Get-Random })
+          $securePass = ConvertTo-SecureString $password -AsPlainText -Force
+          New-LocalUser -Name "RDP" -Password $securePass -AccountNeverExpires
+          Add-LocalGroupMember -Group "Administrators" -Member "RDP"
+          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RDP"
           
-
-
-
-
+          echo "RDP_CREDS=User: RDP | Password: $password" >> $env:GITHUB_ENV
           
-             
-
-          
- 
-            
- 
-                        
-                       
-              Number = [ char []]( 48. . 57 ) # 0-9 Spécial = ([ char []]( 33. . 47 ) + [ char []]( 58. . 64 ) + [ char []]( 91. . 96 ) + [ char []]( 123. . 126 )) # Caractères spéciaux }           $rawPassword = @()           $rawPassword += $charSet . Upper | Get - Random - Count 4           $rawPassword += $charSet . Lower | Get - Random - Count 4           $rawPassword += $charSet . Number | Get - Random - Count 4           $rawPassword += $charSet . Special | Obtenir - Aléatoire - Compter 4           $password = - join ( $rawPassword | Trier - Objet { Obtenir - Aléatoire })           $securePass = ConvertTo - SecureString $password - AsPlainText - Forcer Nouveau - LocalUser - Nom "RDP" - Mot de passe $securePass - AccountNeverExpires Ajouter - LocalGroupMember - Groupe "Administrateurs" - Membre "RDP" Ajouter - LocalGroupMember - Groupe "Utilisateurs du Bureau à distance" - Membre "RDP"           echo "RDP_CREDS=Utilisateur : RDP | Mot de passe : $password" >> $env : GITHUB_ENV if (- not ( Obtenir - LocalUser - Nom "RDP" ))         
-                   
-                            
-          
- 
-    
-    
-    
-    
-     
-  
-             
-              
-              
-          
- 
-          
-               {
+          if (-not (Get-LocalUser -Name "RDP")) {
               Write-Error "User creation failed"
               exit 1
           }
@@ -102,9 +102,12 @@ jobs :
         run: |
           Write-Host "`n=== RDP ACCESS ==="
           Write-Host "Address: $env:TAILSCALE_IP"
-          Write-Host "Username:Mot de passe RDP " 
-          Write-Host " : $ ( echo $env : RDP_CREDS ) "           Write-Host " ================== `n"           # Garder le runner actif indéfiniment (ou jusqu'à annulation manuelle)           while ($true) {               Write-Host "[$(Get-Date)] RDP actif - Utilisez Ctrl+C dans le flux de travail pour terminer"               Start-Sleep -Secondes 300           }
-
+          Write-Host "Username: RDP"
+          Write-Host "Password: $(echo $env:RDP_CREDS)"
+          Write-Host "==================`n"
           
-
-
+          # Keep runner active indefinitely (or until manually cancelled)
+          while ($true) {
+              Write-Host "[$(Get-Date)] RDP Active - Use Ctrl+C in workflow to terminate"
+              Start-Sleep -Seconds 300
+          }
